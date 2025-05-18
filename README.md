@@ -1,39 +1,43 @@
-# pushbox
+# 推箱子游戏
 
-This template should help get you started developing with Vue 3 in Vite.
+## 项目背景
 
-## Recommended IDE Setup
+这是一个基于Vue3的推箱子游戏，旨在提供一个有趣且具有挑战性的游戏体验。
 
-[VSCode](https://code.visualstudio.com/) + [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
+## 项目目标
 
-## Type Support for `.vue` Imports in TS
+- 提供多关卡的推箱子游戏体验。
+- 支持键盘控制、撤销和重置功能。
+- 使用Canvas进行渲染，提供流畅的视觉效果。
 
-TypeScript cannot handle type information for `.vue` imports by default, so we replace the `tsc` CLI with `vue-tsc` for type checking. In editors, we need [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) to make the TypeScript language service aware of `.vue` types.
+## 功能特点
 
-## Customize configuration
+- 多关卡支持：玩家可以挑战不同难度的关卡。
+- 键盘控制：使用键盘方向键来控制人物移动。
+- 撤销功能：允许玩家撤销上一步操作。
+- 重置功能：玩家可以随时重置当前关卡。
 
-See [Vite Configuration Reference](https://vite.dev/config/).
+## 安装和运行指南
 
-## Project Setup
+1. 克隆项目到本地：
+   ```bash
+   git clone <repository-url>
+   ```
+2. 安装依赖：
+   ```bash
+   npm install
+   ```
+3. 启动项目：
+   ```bash
+   npm run dev
+   ```
 
-```sh
-npm install
-```
+## 开发者指南
 
-### Compile and Hot-Reload for Development
-
-```sh
-npm run dev
-```
-
-### Type-Check, Compile and Minify for Production
-
-```sh
-npm run build
-```
-
-### Lint with [ESLint](https://eslint.org/)
-
-```sh
-npm run lint
-```
+- 项目目录结构：
+  - `src/views/pushBox/`: 包含游戏的主要视图组件。
+  - `src/assets/`: 存放游戏相关的图片和样式文件。
+- 主要文件：
+  - `GameControl.vue`: 控制游戏逻辑的组件。
+  - `GameCanvas.vue`: 负责游戏画面渲染的组件。
+- 贡献代码：欢迎提交Pull Request来贡献代码。
