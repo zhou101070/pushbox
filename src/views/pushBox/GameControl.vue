@@ -67,6 +67,7 @@ const handleKeyDown = (e: KeyboardEvent) => {
   if (checkGameEnd()) {
     // 游戏结束
     message.success('恭喜你，游戏结束！')
+    window.removeEventListener('keydown',handleKeyDown)
 
     Modal.confirm({
       title: '游戏结束',
@@ -80,6 +81,9 @@ const handleKeyDown = (e: KeyboardEvent) => {
       onCancel() {
         initGame(levels[state.value.currentLevel])
       },
+      afterClose(){
+        window.addEventListener('keydown',handleKeyDown)
+      }
     })
   } else {
     saveStateToLocalStorage()
