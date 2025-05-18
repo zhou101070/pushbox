@@ -58,7 +58,6 @@ const renderMap = () => {
   if (Object.keys(loadedImages.value).length !== Object.keys(config.images).length) {
     return
   }
-  console.log('renderMap')
 
   // 清空画布
   ctx.clearRect(0, 0, canvas.width, canvas.height)
@@ -73,8 +72,6 @@ const renderMap = () => {
   for (let y = 0; y < rows; y++) {
     for (let x = 0; x < cols; x++) {
       const cellValue = state.value.currentMap[y][x]
-      // TODO: 根据cellValue绘制对应的图片
-      // 这里应该绘制配置的图片，暂时用颜色代替
       const img = loadedImages.value[cellValue]
       ctx.drawImage(img, x * config.cellSize, y * config.cellSize, config.cellSize, config.cellSize)
     }

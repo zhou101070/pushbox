@@ -4,12 +4,15 @@ import { Select, Button, message, Modal } from 'ant-design-vue'
 import { useGameState } from './GameState'
 import { levels } from './levels'
 
-const { state, initGame, saveState, undo, reset } = useGameState()
+const { state,initGame, saveState, undo, reset, saveStateToLocalStorage } = useGameState()
 const selectedLevel = ref<number>(1)
 watch(
   () => state.value.currentLevel,
   function (value) {
     selectedLevel.value = value
+  },
+  {
+    immediate: true,
   },
 )
 // 添加键盘事件监听
@@ -43,9 +46,9 @@ const handleLevelChange = () => {
  */
 const handleKeyDown = (e: KeyboardEvent) => {
   // 保存当前状态到历史记录
-  saveState()
-  console.log(e.key)
 
+  if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)) return
+  saveState()
   // 根据按键移动人物
   switch (e.key) {
     case 'ArrowUp':
@@ -78,6 +81,8 @@ const handleKeyDown = (e: KeyboardEvent) => {
         initGame(levels[state.value.currentLevel])
       },
     })
+  } else {
+    saveStateToLocalStorage()
   }
 }
 
@@ -179,8 +184,8 @@ const checkGameEnd = () => {
         style="width: 200px"
       />
       <Button type="primary" @click="handleLevelChange">跳转</Button>
-      <Button @click="undo">撤销</Button>
-      <Button @click="reset">重置</Button>
+      <Button @click="undo" :disabled="state.history.length===0">撤销</Button>
+      <Button @click="reset" :disabled="state.history.length===0">重置</Button>
     </div>
   </div>
 </template>

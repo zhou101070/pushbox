@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import type { Level } from './levels.ts'
+import { levels, type Level } from './levels.ts'
 
 /**
  * 游戏地图单元格类型:
@@ -67,11 +67,30 @@ export function useGameState() {
     state.value.history = []
   }
 
+  const saveStateToLocalStorage = () => {
+    localStorage.setItem('gameState', JSON.stringify(state.value))
+  }
+
+  const loadStateFromLocalStorage = () => {
+    const savedState = localStorage.getItem('gameState')
+    if (savedState) {
+      const parsedState = JSON.parse(savedState)
+      state.value.currentMap = parsedState.currentMap
+      state.value.initialMap = parsedState.initialMap
+      state.value.history = parsedState.history
+      state.value.currentLevel = parsedState.currentLevel
+    } else {
+      initGame(levels[state.value.currentLevel])
+    }
+  }
+
   return {
     state,
     initGame,
     saveState,
     undo,
     reset,
+    saveStateToLocalStorage,
+    loadStateFromLocalStorage,
   }
 }

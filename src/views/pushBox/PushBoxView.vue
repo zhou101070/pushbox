@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { useGameState } from './GameState'
-import { levels } from './levels'
 import GameCanvas from './GameCanvas.vue'
 import GameControl from './GameControl.vue'
 
-const { initGame, state } = useGameState()
+const { loadStateFromLocalStorage } = useGameState()
 // 初始化第一关
-initGame(levels[state.value.currentLevel])
+loadStateFromLocalStorage()
 </script>
 
 <template>
