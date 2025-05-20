@@ -2,10 +2,10 @@
 import { useGameState } from './GameState'
 import GameCanvas from './GameCanvas.vue'
 import GameControl from './GameControl.vue'
-
 const { loadStateFromLocalStorage } = useGameState()
 // 初始化第一关
 loadStateFromLocalStorage()
+
 </script>
 
 <template>

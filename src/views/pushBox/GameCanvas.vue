@@ -9,6 +9,8 @@ import keeper from './gameImages/keeper.png'
 import keeper_on_target from './gameImages/keeper_on_target.png'
 import target from './gameImages/target.png'
 import wall from './gameImages/wall.png'
+import keeper2 from './gameImages/keeper2.png' // 第二个玩家图片
+import keeper2_on_target from './gameImages/keeper2_on_target.png' // 第二个玩家在目标位置上的图片
 
 const { state } = useGameState()
 const canvasRef = ref<HTMLCanvasElement | null>(null)
@@ -31,7 +33,7 @@ const preloadImages = async () => {
 
 // 配置项
 const config = {
-  cellSize: 50, // 每个格子的大小
+  cellSize: 25, // 每个格子的大小
   images: {
     0: empty, // 不可达区域图片路径
     1: wall, // 墙图片路径
@@ -41,6 +43,8 @@ const config = {
     5: cargo_on_target, // 处于目标位置的箱子图片路径
     6: keeper, // 人物图片路径
     7: keeper_on_target, // 人物与目标重合的图片路径
+    8: keeper2, // 第二个人物图片路径
+    9: keeper2_on_target, // 第二个人物与目标重合的图片路径
   },
 }
 
