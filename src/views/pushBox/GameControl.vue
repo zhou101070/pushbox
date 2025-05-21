@@ -332,7 +332,7 @@ function computationalProcedure() {
   steps.value = []
   solveSokoban(JSON.parse(JSON.stringify(state.value.currentMap)), 10000)
     .then((result) => {
-      console.log('解决方案:', result)
+      console.log('解决方案:', result.join('->'))
       steps.value = result
       if (steps.value.length > 0) {
         message.success(`找到解决方案，共${steps.value.length}步`)
