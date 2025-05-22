@@ -63,6 +63,9 @@ const handleLevelChange = () => {
 const handleDualModeToggle = (checked: boolean) => {
   toggleDualMode()
   message.success(`${checked ? '开启' : '关闭'}双人模式`)
+  if (checked) {
+    steps.value = []
+  }
 }
 
 /**
@@ -464,6 +467,7 @@ onUnmounted(() => {
           :options="algorithmOptions"
           style="width: 200px"
           placeholder="选择算法"
+          :disabled="state.isDualMode"
           :max-tag-count="2"
           :max-tag-text-length="4"
           :allow-clear="false"
@@ -479,6 +483,7 @@ onUnmounted(() => {
         >
         <a-button
           type="primary"
+          :disabled="state.isDualMode"
           @click="loading ? cancelComputationalProcedure() : computationalProcedure()"
         >
           {{ loading ? '停止计算' : '计算步骤' }}
@@ -499,6 +504,9 @@ onUnmounted(() => {
     <div v-if="state.isDualMode" class="control-info">
       <p>玩家1: 方向键控制 | 玩家2: WASD键控制</p>
     </div>
+    <div class="steps-info" v-if="steps.length">
+      <p>当前步骤: {{ steps.join('->') }}</p>
+    </div>
   </div>
 </template>
 
@@ -508,7 +516,7 @@ onUnmounted(() => {
 }
 .control-panel {
   display: flex;
-
+  justify-content: center;
   gap: 10px;
   margin-bottom: 10px;
 }
@@ -529,5 +537,12 @@ onUnmounted(() => {
   font-size: 14px;
   color: #666;
   margin-top: 5px;
+}
+.steps-info {
+  max-height: 100px;
+  overflow-y: auto;
+  color: brown;
+  max-width: 900px;
+  margin: 0 auto;
 }
 </style>
