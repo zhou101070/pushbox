@@ -2,7 +2,7 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { useGameState } from './GameState'
 import { levels, levelSets, setLevels } from './levels'
-import { solveSokoban } from '@/views/pushBox/SokobanSolver.ts'
+import { solveSokoban, type AlgorithmType } from '@/views/pushBox/SokobanSolver.ts'
 import { message, Modal } from 'ant-design-vue'
 const { state, initGame, saveState, undo, reset, saveStateToLocalStorage, toggleDualMode } =
   useGameState()
@@ -80,7 +80,7 @@ const handleKeyDown = (e: KeyboardEvent) => {
   const isArrowKey = ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(e.key)
   const isWASDKey = ['w', 'a', 's', 'd'].includes(e.key.toLowerCase())
 
-  if (!isArrowKey && !isWASDKey && e.key !== 'z') return
+  if (!isArrowKey && !isWASDKey && e.key !== 'z') return undo()
 
   // 如果是双人模式，处理WASD键移动第二个玩家
   if (state.value.isDualMode && isWASDKey) {
@@ -117,6 +117,8 @@ const handleKeyDown = (e: KeyboardEvent) => {
         movePlayer(1, 0)
         break
     }
+    stopAutoPlay()
+    steps.value = []
   }
 
   if (checkGameEnd()) {
@@ -324,13 +326,29 @@ const loading = ref(false)
 const steps = ref<string[]>([])
 const isAutoPlaying = ref(false)
 const autoPlayInterval = ref<number | null>(null)
-
+let ctrl: AbortController = new AbortController()
 // 计算解决方案步骤
+const algorithms = ref<AlgorithmType[]>(['bfs', 'a_star'])
+const algorithmOptions = [
+  { value: 'bfs', label: 'BFS' },
+  { value: 'a_star', label: 'A*' },
+]
+
+watch(algorithms, (val, oldVal) => {
+  if (val.length === 0) {
+    // 如果用户取消了最后一个，强制选择另一个
+    algorithms.value =
+      oldVal && oldVal[0] === algorithmOptions[0].value
+        ? [algorithmOptions[1].value as AlgorithmType]
+        : [algorithmOptions[0].value as AlgorithmType]
+  }
+})
 function computationalProcedure() {
   console.log('计算步骤')
   loading.value = true
   steps.value = []
-  solveSokoban(JSON.parse(JSON.stringify(state.value.currentMap)), 10000)
+  ctrl = new AbortController()
+  solveSokoban(JSON.parse(JSON.stringify(state.value.currentMap)), algorithms.value, 0, ctrl.signal)
     .then((result) => {
       console.log('解决方案:', result.join('->'))
       steps.value = result
@@ -340,14 +358,20 @@ function computationalProcedure() {
         message.warning('未找到解决方案')
       }
     })
-    .catch(() => {
-      message.warning('计算超时')
+    .catch(({ message: msg }) => {
+      if (msg === 'abort') {
+        message.warning('计算已取消')
+      } else if (msg === 'timeout') {
+        message.warning('计算超时')
+      }
     })
     .finally(() => {
       loading.value = false
     })
 }
-
+function cancelComputationalProcedure() {
+  ctrl.abort()
+}
 // 按步骤自动行动
 function autoPlay() {
   if (steps.value.length === 0) {
@@ -428,26 +452,42 @@ onUnmounted(() => {
           style="width: 150px"
           @change="handleLevelSetChange"
         />
-        <!-- <a-button type="primary" @click="handleLevelSetChange">切换关卡集</a-button> -->
         <a-select
           v-model:value="selectedLevel"
           :options="levels.map((l) => ({ value: l.id, label: l.name }))"
           style="width: 150px"
           @change="handleLevelChange"
         />
+        <a-select
+          v-model:value="algorithms"
+          mode="multiple"
+          :options="algorithmOptions"
+          style="width: 200px"
+          placeholder="选择算法"
+          :max-tag-count="2"
+          :max-tag-text-length="4"
+          :allow-clear="false"
+        />
         <!-- <a-button type="primary" @click="handleLevelChange">跳转</a-button> -->
       </div>
       <div class="game-controls">
-        <a-button type="default" @click="undo" :disabled="state.history.length === 0"
+        <a-button type="primary" @click="undo" :disabled="state.history.length === 0"
           >撤销</a-button
         >
-        <a-button type="default" @click="reset" :disabled="state.history.length === 0"
+        <a-button type="primary" danger @click="reset" :disabled="state.history.length === 0"
           >重置</a-button
         >
-        <a-button type="primary" @click="computationalProcedure" :loading="loading"
-          >计算步骤</a-button
+        <a-button
+          type="primary"
+          @click="loading ? cancelComputationalProcedure() : computationalProcedure()"
         >
-        <a-button @click="autoPlay" :loading="loading" :type="isAutoPlaying ? 'danger' : 'primary'">
+          {{ loading ? '停止计算' : '计算步骤' }}
+        </a-button>
+        <a-button
+          @click="autoPlay"
+          :disabled="state.isDualMode || !steps.length"
+          :type="isAutoPlaying ? 'danger' : 'primary'"
+        >
           {{ isAutoPlaying ? '停止行动' : '按步骤行动' }}
         </a-button>
         <div class="dual-mode-toggle">
@@ -458,9 +498,6 @@ onUnmounted(() => {
     </div>
     <div v-if="state.isDualMode" class="control-info">
       <p>玩家1: 方向键控制 | 玩家2: WASD键控制</p>
-    </div>
-    <div v-if="steps.length > 0" class="steps-info">
-      <p>已计算出解决方案，共 {{ steps.length }} 步</p>
     </div>
   </div>
 </template>

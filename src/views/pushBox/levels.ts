@@ -1,4 +1,4 @@
-import { maps, maps2, maps3, maps4, maps5, maps6, maps7, type Maps } from './maps'
+import { maps, maps2, maps3, maps4, maps5, maps6, maps7, maps8, type Maps } from './maps'
 import './SokobanSolver.ts'
 export interface Level {
   id: number
@@ -45,6 +45,11 @@ export const levelSets: LevelSet[] = [
     id: 7,
     name: 'zika_1',
     maps: formatMaps(maps7),
+  },
+  {
+    id: 8,
+    name: 'taptap',
+    maps: formatMaps(maps8),
   },
 ]
 export let levels: Level[] = formatMaps(maps4)

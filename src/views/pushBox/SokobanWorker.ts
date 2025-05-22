@@ -197,9 +197,62 @@ class SokobanSolver {
     )
   }
 
-  isDeadlock(pos: Position): boolean {
+  isDeadlock(pos: Position, boxes?: Set<string>): boolean {
     const str = this.posToString(pos)
-    return !this.targets.has(str) && this.deadlockPositions.has(str)
+
+    // 基本死锁检测：位置是预计算的死锁位置
+    if (!this.targets.has(str) && this.deadlockPositions.has(str)) {
+      return true
+    }
+
+    // 如果提供了箱子集合，进行更高级的死锁检测
+    if (boxes && !this.targets.has(str)) {
+      // 双箱子死锁检测：检查两个箱子是否形成了无法移动的局面
+      if (this.isDoubleBoxDeadlock(pos, boxes)) {
+        return true
+      }
+    }
+
+    return false
+  }
+
+  // 检测两个箱子是否形成了死锁
+  private isDoubleBoxDeadlock(pos: Position, boxes: Set<string>): boolean {
+    const [i, j] = pos
+
+    // 检查水平方向的双箱子死锁
+    // 如果两个箱子水平相邻，且上方或下方都是墙或其他箱子
+    for (const di of [-1, 1]) {
+      // 检查上下方向
+      if (boxes.has(this.posToString([i, j + 1]))) {
+        // 右侧有箱子
+        const topBlocked1 =
+          !this.isValidMove([i + di, j]) || boxes.has(this.posToString([i + di, j]))
+        const topBlocked2 =
+          !this.isValidMove([i + di, j + 1]) || boxes.has(this.posToString([i + di, j + 1]))
+        if (topBlocked1 && topBlocked2) {
+          return true
+        }
+      }
+    }
+
+    // 检查垂直方向的双箱子死锁
+    // 如果两个箱子垂直相邻，且左方或右方都是墙或其他箱子
+    for (const dj of [-1, 1]) {
+      // 检查左右方向
+      if (boxes.has(this.posToString([i + 1, j]))) {
+        // 下方有箱子
+        const sideBlocked1 =
+          !this.isValidMove([i, j + dj]) || boxes.has(this.posToString([i, j + dj]))
+        const sideBlocked2 =
+          !this.isValidMove([i + 1, j + dj]) || boxes.has(this.posToString([i + 1, j + dj]))
+        if (sideBlocked1 && sideBlocked2) {
+          return true
+        }
+      }
+    }
+
+    return false
   }
 
   getNextStates(state: State): State[] {
@@ -224,7 +277,8 @@ class SokobanSolver {
           const newBoxes = new Set(state.boxes)
           newBoxes.delete(newPosStr)
           newBoxes.add(boxNewStr)
-          if (!this.isDeadlock(boxNewPos)) {
+          // 使用增强的死锁检测，传递当前箱子集合
+          if (!this.isDeadlock(boxNewPos, newBoxes)) {
             result.push(new State(newPos, newBoxes, state, DIRECTION_NAMES[d], state.steps + 1))
           }
         }
@@ -303,12 +357,14 @@ class SokobanSolver {
     while (heap.size > 0) {
       const [, state] = heap.pop()!
       if (this.isGoal(state)) return this.getPath(state)
-
+      if (heap.size % 1000 === 0) {
+        console.log(`Heap size: ${heap.size}`)
+      }
       for (const next of this.getNextStates(state)) {
         const hash = next.getHash()
         if (!visited.has(hash)) {
           visited.add(hash)
-          heap.push([next.steps + heuristic(next), next])
+          heap.push([heuristic(next), next])
         }
       }
     }
