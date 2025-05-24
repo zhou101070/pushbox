@@ -13,19 +13,21 @@ import { levels, type Level } from './levels.ts'
  * 8 - 第二个人物
  * 9 - 第二个人物与目标重合
  */
-type CellValue = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
-type GameMap = CellValue[][]
+export type CellValue = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
+export type GameMap = CellValue[][]
 
 interface GameState {
   currentMap: GameMap
   initialMap: GameMap
   history: GameMap[]
   currentLevel: number
+  stepNumber: number
   isDualMode: boolean
 }
 const state = ref<GameState>({
   currentMap: [],
   initialMap: [],
+  stepNumber: 0,
   history: [],
   currentLevel: 0,
   isDualMode: false,
@@ -43,7 +45,8 @@ export function useGameState() {
     state.value.initialMap = JSON.parse(JSON.stringify(level.map))
     state.value.history = []
     state.value.currentLevel = level.id
-    
+    state.value.stepNumber = 0
+    // 初始化游戏状态
     if (state.value.isDualMode) {
       addSecondPlayer()
     }
@@ -54,9 +57,10 @@ export function useGameState() {
    */
   const addSecondPlayer = () => {
     const map = state.value.currentMap
-    
+
     // 找到第一个玩家位置
-    let playerX = -1, playerY = -1
+    let playerX = -1,
+      playerY = -1
     for (let y = 0; y < map.length; y++) {
       for (let x = 0; x < map[y].length; x++) {
         if (map[y][x] === 6 || map[y][x] === 7) {
@@ -67,26 +71,26 @@ export function useGameState() {
       }
       if (playerX !== -1) break
     }
-    
+
     if (playerX === -1 || playerY === -1) return
-    
+
     // 检查玩家周围四个方向，找到第一个可放置位置
     const directions = [
       { dx: 0, dy: -1 }, // 上
-      { dx: 1, dy: 0 },  // 右
-      { dx: 0, dy: 1 },  // 下
+      { dx: 1, dy: 0 }, // 右
+      { dx: 0, dy: 1 }, // 下
       { dx: -1, dy: 0 }, // 左
     ]
-    
+
     for (const { dx, dy } of directions) {
       const newX = playerX + dx
       const newY = playerY + dy
-      
+
       // 检查边界
       if (newY < 0 || newY >= map.length || newX < 0 || newX >= map[0].length) continue
-      
+
       const cell = map[newY][newX]
-      
+
       // 如果是可行走空间或目标位置，放置第二个玩家
       if (cell === 2) {
         map[newY][newX] = 8
@@ -96,7 +100,7 @@ export function useGameState() {
         break
       }
     }
-    
+
     // 更新初始地图状态
     state.value.initialMap = JSON.parse(JSON.stringify(map))
   }
@@ -122,9 +126,8 @@ export function useGameState() {
    */
   const undo = () => {
     if (state.value.history.length > 0) {
-      console.log(JSON.parse(JSON.stringify(state.value.currentMap)))
       state.value.currentMap = state.value.history.pop() as GameMap
-      console.log(JSON.parse(JSON.stringify(state.value.currentMap)))
+      state.value.stepNumber--
     }
   }
 
@@ -134,6 +137,7 @@ export function useGameState() {
   const reset = () => {
     state.value.currentMap = JSON.parse(JSON.stringify(state.value.initialMap))
     state.value.history = []
+    state.value.stepNumber = 0
   }
 
   const saveStateToLocalStorage = () => {
@@ -165,4 +169,3 @@ export function useGameState() {
     toggleDualMode,
   }
 }
-

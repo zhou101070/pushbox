@@ -1,4 +1,21 @@
-import { maps, maps2, maps3, maps4, maps5, maps6, maps7, maps8, type Maps } from './maps'
+import {
+  maps,
+  maps10,
+  maps12,
+  maps13,
+  maps14,
+  maps15,
+  maps16,
+  maps2,
+  maps3,
+  maps4,
+  maps5,
+  maps6,
+  maps7,
+  maps8,
+  maps9,
+  type Maps,
+} from './maps'
 import './SokobanSolver.ts'
 export interface Level {
   id: number
@@ -12,47 +29,72 @@ export interface LevelSet {
 }
 export const levelSets: LevelSet[] = [
   {
-    id: 1,
     name: 'Gradus ad Olympo',
     maps: formatMaps(maps2),
   },
   {
-    id: 2,
     name: 'Magic Sokoban',
     maps: formatMaps(maps3),
   },
   {
-    id: 3,
     name: 'Homz Challenge',
     maps: formatMaps(maps4),
   },
   {
-    id: 4,
+    name: 'XXZhongJi600',
+    maps: formatMaps(maps16),
+  },
+  {
     name: '挑战关卡1',
     maps: formatMaps(maps),
   },
   {
-    id: 5,
     name: 's1',
     maps: formatMaps(maps5),
   },
   {
-    id: 6,
+    name: 's2',
+    maps: formatMaps(maps12),
+  },
+  {
+    name: 'm1',
+    maps: formatMaps(maps9),
+  },
+  {
     name: 'm2',
     maps: formatMaps(maps6),
   },
   {
-    id: 7,
+    name: 'm3',
+    maps: formatMaps(maps10),
+  },
+  {
+    name: 'm4',
+    maps: formatMaps(maps13),
+  },
+  {
     name: 'zika_1',
     maps: formatMaps(maps7),
   },
   {
-    id: 8,
+    name: 'zika_2',
+    maps: formatMaps(maps14),
+  },
+  {
+    name: '696',
+    maps: formatMaps(maps15),
+  },
+  {
     name: 'taptap',
     maps: formatMaps(maps8),
   },
-]
-export let levels: Level[] = formatMaps(maps4)
+].map((set, index) => {
+  return {
+    ...set,
+    id: index + 1,
+  }
+})
+export let levels: Level[] = levelSets[0].maps
 
 export function formatMaps(maps: Maps) {
   return maps.map((map, index) => {
@@ -96,7 +138,6 @@ export function convertSokobanLevel(levelStr: string) {
               return 0 // 其他字符处理为不可达
           }
         })
-        .filter((cell) => cell !== 0) // 可选：自动移除不可达区域
     })
     .filter((row) => row.length > 0) // 过滤空行
 }

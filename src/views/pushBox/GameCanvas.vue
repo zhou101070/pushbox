@@ -32,8 +32,11 @@ const preloadImages = async () => {
 }
 
 // 配置项
+const cellSize = ref(25)
 const config = {
-  cellSize: 25, // 每个格子的大小
+  get cellSize() {
+    return cellSize.value
+  }, // 每个格子的大小
   images: {
     0: empty, // 不可达区域图片路径
     1: wall, // 墙图片路径
@@ -83,7 +86,7 @@ const renderMap = () => {
 }
 
 // 监听地图变化重新渲染
-watch(() => state.value.currentMap, renderMap, { deep: true })
+watch([() => state.value.currentMap, cellSize], renderMap, { deep: true })
 
 onMounted(async () => {
   await preloadImages()
@@ -92,12 +95,26 @@ onMounted(async () => {
 </script>
 
 <template>
-  <canvas ref="canvasRef"></canvas>
+  <div style="position: fixed; top: 0px; right: 0; z-index: 1000; width: fit-content">
+    <label style="display: block; text-align: center; margin-bottom: 4px">
+      格子大小：{{ cellSize }}
+      <input
+        type="range"
+        min="16"
+        max="50"
+        v-model="cellSize"
+        style="width: 200px; vertical-align: middle; margin-left: 8px"
+      />
+    </label>
+  </div>
+  <div style="width: fit-content; margin: 0 auto">
+    <canvas ref="canvasRef"></canvas>
+  </div>
 </template>
 
 <style scoped>
 canvas {
-  border: 1px solid #ddd;
+  /* border: 1px solid #ddd; */
   margin: 0 auto;
   display: block;
 }

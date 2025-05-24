@@ -32,12 +32,11 @@ onUnmounted(() => {
  */
 const handleLevelSetChange = () => {
   const levelSet = levelSets.find((ls) => ls.id === selectedLevelSet.value)
+  successLevels.value = []
   if (levelSet) {
     setLevels(levelSet.maps.map((level) => level.map))
     selectedLevel.value = 0
-    const level = levels[0]
-    state.value.currentLevel = level.id
-    initGame(level)
+    handleLevelChange()
     message.success(`已切换到关卡集: ${levelSet.name}，第1关`)
   }
 }
@@ -51,8 +50,7 @@ const handleLevelChange = () => {
   if (level) {
     state.value.currentLevel = level.id
     initGame(level)
-    console.log('initGame')
-
+    steps.value = []
     message.success(`已切换到关卡: ${level.name}`)
   }
 }
@@ -72,7 +70,7 @@ const handleDualModeToggle = (checked: boolean) => {
  * 处理键盘事件
  * @param e 键盘事件对象
  */
-const handleKeyDown = (e: KeyboardEvent) => {
+const handleKeyDown = (e: KeyboardEvent, showDialog: boolean = true) => {
   // 保存当前状态到历史记录
   if (e.key === 'z') {
     undo()
@@ -106,6 +104,7 @@ const handleKeyDown = (e: KeyboardEvent) => {
   // 处理箭头键移动第一个玩家
   else if (isArrowKey) {
     saveState()
+    const [playerX1, playerY1] = findPlayerPosition(state.value.currentMap, [6, 7])
     switch (e.key) {
       case 'ArrowUp':
         movePlayer(0, -1)
@@ -120,31 +119,42 @@ const handleKeyDown = (e: KeyboardEvent) => {
         movePlayer(1, 0)
         break
     }
-    stopAutoPlay()
-    steps.value = []
+    const [playerX2, playerY2] = findPlayerPosition(state.value.currentMap, [6, 7])
+    if (playerX1 === playerX2 && playerY1 === playerY2) {
+      state.value.history.pop()
+    } else {
+      state.value.stepNumber++
+    }
+    if (e.isTrusted) {
+      stopAutoPlay()
+      steps.value = []
+    }
   }
 
   if (checkGameEnd()) {
     // 游戏结束
     message.success('恭喜你，游戏结束！')
     window.removeEventListener('keydown', handleKeyDown)
-
-    Modal.confirm({
-      title: '游戏结束',
-      content: '恭喜你，游戏结束！是否继续下一关？',
-      okText: '确定',
-      cancelText: '重玩',
-      onOk() {
-        state.value.currentLevel = (state.value.currentLevel + 1) % levels.length
-        initGame(levels[state.value.currentLevel])
-      },
-      onCancel() {
-        initGame(levels[state.value.currentLevel])
-      },
-      afterClose() {
-        window.addEventListener('keydown', handleKeyDown)
-      },
-    })
+    if (showDialog) {
+      Modal.confirm({
+        title: '游戏结束',
+        content: '恭喜你，游戏结束！是否继续下一关？',
+        okText: '确定',
+        cancelText: '重玩',
+        centered: true,
+        onOk() {
+          state.value.currentLevel = (state.value.currentLevel + 1) % levels.length
+          initGame(levels[state.value.currentLevel])
+          steps.value = []
+        },
+        onCancel() {
+          initGame(levels[state.value.currentLevel])
+        },
+        afterClose() {
+          window.addEventListener('keydown', handleKeyDown)
+        },
+      })
+    }
   } else {
     saveStateToLocalStorage()
   }
@@ -159,19 +169,7 @@ const movePlayer = (dx: number, dy: number) => {
   const map = state.value.currentMap
 
   // 1. 找到玩家当前位置
-  let playerX = -1,
-    playerY = -1
-  for (let y = 0; y < map.length; y++) {
-    for (let x = 0; x < map[y].length; x++) {
-      if (map[y][x] === 6 || map[y][x] === 7) {
-        playerX = x
-        playerY = y
-        break
-      }
-    }
-    if (playerX !== -1) break
-  }
-
+  const [playerX, playerY] = findPlayerPosition(map, [6, 7])
   if (playerX === -1 || playerY === -1) return
 
   // 2. 计算目标位置
@@ -240,19 +238,7 @@ const moveSecondPlayer = (dx: number, dy: number) => {
   const map = state.value.currentMap
 
   // 1. 找到第二个玩家当前位置
-  let playerX = -1,
-    playerY = -1
-  for (let y = 0; y < map.length; y++) {
-    for (let x = 0; x < map[y].length; x++) {
-      if (map[y][x] === 8 || map[y][x] === 9) {
-        playerX = x
-        playerY = y
-        break
-      }
-    }
-    if (playerX !== -1) break
-  }
-
+  const [playerX, playerY] = findPlayerPosition(map, [8, 9])
   if (playerX === -1 || playerY === -1) return
 
   // 2. 计算目标位置
@@ -331,27 +317,45 @@ const isAutoPlaying = ref(false)
 const autoPlayInterval = ref<number | null>(null)
 let ctrl: AbortController = new AbortController()
 // 计算解决方案步骤
-const algorithms = ref<AlgorithmType[]>(['bfs', 'a_star'])
+const algorithms = ref<AlgorithmType[]>(['bfs'])
 const algorithmOptions = [
   { value: 'bfs', label: 'BFS' },
+  { value: 'dfs', label: 'DFS' },
   { value: 'a_star', label: 'A*' },
+  // { value: 'bidirectional', label: 'bidirectional' },
+  // { value: 'reverse', label: 'reverse' },
 ]
 
 watch(algorithms, (val, oldVal) => {
   if (val.length === 0) {
-    // 如果用户取消了最后一个，强制选择另一个
-    algorithms.value =
-      oldVal && oldVal[0] === algorithmOptions[0].value
-        ? [algorithmOptions[1].value as AlgorithmType]
-        : [algorithmOptions[0].value as AlgorithmType]
+    // 如果用户取消了最后一个，强制选择下一个可用算法
+    const current = oldVal && oldVal[0]
+    let idx = algorithmOptions.findIndex((opt) => opt.value === current)
+    idx = (idx + 1) % algorithmOptions.length
+    algorithms.value = [algorithmOptions[idx].value as AlgorithmType]
   }
 })
-function computationalProcedure() {
+const remainingTime = ref(0)
+let remainingTimeTimer = -1
+function computationalProcedure(timeout: number = 0, enablePathOptimization = true) {
   console.log('计算步骤')
   loading.value = true
   steps.value = []
   ctrl = new AbortController()
-  solveSokoban(JSON.parse(JSON.stringify(state.value.currentMap)), algorithms.value, 0, ctrl.signal)
+  remainingTime.value = timeout / 1000
+  remainingTimeTimer = setInterval(() => {
+    remainingTime.value--
+    if (remainingTime.value <= 0) {
+      clearInterval(remainingTimeTimer)
+    }
+  }, 1000)
+  return solveSokoban(
+    JSON.parse(JSON.stringify(state.value.currentMap)),
+    algorithms.value,
+    timeout,
+    ctrl.signal,
+    enablePathOptimization,
+  )
     .then((result) => {
       console.log('解决方案:', result.join('->'))
       steps.value = result
@@ -361,13 +365,26 @@ function computationalProcedure() {
         message.warning('未找到解决方案')
       }
     })
+
     .catch(({ message: msg }) => {
       if (msg === 'abort') {
         message.warning('计算已取消')
       } else if (msg === 'timeout') {
         message.warning('计算超时')
+      } else {
+        message.error('无解')
       }
+      return Promise.reject(new Error('计算失败'))
     })
+    .finally(() => {
+      clearInterval(remainingTimeTimer)
+      remainingTime.value = 0
+      loading.value = false
+    })
+}
+function handleComputationalProcedure() {
+  computationalProcedure()
+    .catch(() => {})
     .finally(() => {
       loading.value = false
     })
@@ -376,60 +393,70 @@ function cancelComputationalProcedure() {
   ctrl.abort()
 }
 // 按步骤自动行动
-function autoPlay() {
-  if (steps.value.length === 0) {
-    message.warning('请先计算步骤')
-    return
-  }
+function autoPlay(showDialog: boolean = true) {
+  return new Promise<void>((resolve) => {
+    if (steps.value.length === 0) {
+      message.warning('请先计算步骤')
+      return
+    }
 
-  if (isAutoPlaying.value) {
-    // 如果正在自动播放，则停止
-    stopAutoPlay()
-    return
-  }
+    if (isAutoPlaying.value) {
+      // 如果正在自动播放，则停止
+      stopAutoPlay()
+      return
+    }
 
-  isAutoPlaying.value = true
-  let currentStep = 0
-  function runNextStep() {
-    autoPlayInterval.value = setTimeout(() => {
-      if (currentStep >= steps.value.length) {
-        stopAutoPlay()
-        message.success('自动行动完成')
-        return
-      }
+    isAutoPlaying.value = true
+    let currentStep = 0
+    function runNextStep() {
+      autoPlayInterval.value = setTimeout(() => {
+        if (currentStep >= steps.value.length) {
+          stopAutoPlay()
+          resolve()
+          return
+        }
 
-      // 执行当前步骤
-      const direction = steps.value[currentStep]
-      saveState()
-
-      switch (direction) {
-        case '上':
-          movePlayer(0, -1)
-          break
-        case '下':
-          movePlayer(0, 1)
-          break
-        case '左':
-          movePlayer(-1, 0)
-          break
-        case '右':
-          movePlayer(1, 0)
-          break
-      }
-
-      currentStep++
-      // 检查游戏是否结束
-      if (checkGameEnd()) {
-        stopAutoPlay()
-        message.success('恭喜你，游戏结束！')
-      } else if (currentStep < steps.value.length) {
+        // 执行当前步骤
+        const direction = steps.value[currentStep]
+        switch (direction) {
+          case '上':
+            handleKeyDown(new KeyboardEvent('keydown', { key: 'ArrowUp' }), showDialog)
+            break
+          case '下':
+            handleKeyDown(new KeyboardEvent('keydown', { key: 'ArrowDown' }), showDialog)
+            break
+          case '左':
+            handleKeyDown(new KeyboardEvent('keydown', { key: 'ArrowLeft' }), showDialog)
+            break
+          case '右':
+            handleKeyDown(new KeyboardEvent('keydown', { key: 'ArrowRight' }), showDialog)
+            break
+        }
+        currentStep++
         runNextStep()
-      }
-    }, 50)
-  }
-  runNextStep()
+      }, 0)
+    }
+    runNextStep()
+  })
 }
-
+const successLevels = ref<number[]>([])
+function autoNext() {
+  console.clear()
+  computationalProcedure(60000 * 2, true)
+    .then(async () => {
+      successLevels.value.push(state.value.currentLevel + 1)
+      await autoPlay(false)
+    })
+    .catch(() => {})
+    .finally(() => {
+      if (checkGameEnd()) {
+        selectedLevel.value = selectedLevel.value + 1
+        if (selectedLevel.value > levels.length - 1) return
+        handleLevelChange()
+        autoNext()
+      }
+    })
+}
 // 停止自动播放
 function stopAutoPlay() {
   if (autoPlayInterval.value !== null) {
@@ -443,6 +470,22 @@ function stopAutoPlay() {
 onUnmounted(() => {
   stopAutoPlay()
 })
+/**
+ * 查找指定玩家当前位置
+ * @param map 地图数组
+ * @param playerCodes 玩家对应的编码数组
+ * @returns [x, y] 或 [-1, -1] 未找到
+ */
+function findPlayerPosition(map: number[][], playerCodes: number[]): [number, number] {
+  for (let y = 0; y < map.length; y++) {
+    for (let x = 0; x < map[y].length; x++) {
+      if (playerCodes.includes(map[y][x])) {
+        return [x, y]
+      }
+    }
+  }
+  return [-1, -1]
+}
 </script>
 
 <template>
@@ -484,9 +527,9 @@ onUnmounted(() => {
         <a-button
           type="primary"
           :disabled="state.isDualMode"
-          @click="loading ? cancelComputationalProcedure() : computationalProcedure()"
+          @click="loading ? cancelComputationalProcedure() : handleComputationalProcedure()"
         >
-          {{ loading ? '停止计算' : '计算步骤' }}
+          {{ loading ? `停止计算 ${remainingTime > 0 ? remainingTime : ''}` : '计算步骤' }}
         </a-button>
         <a-button
           @click="autoPlay"
@@ -495,6 +538,7 @@ onUnmounted(() => {
         >
           {{ isAutoPlaying ? '停止行动' : '按步骤行动' }}
         </a-button>
+        <a-button type="primary" @click="autoNext">启动</a-button>
         <div class="dual-mode-toggle">
           <span>双人模式:</span>
           <a-switch :checked="state.isDualMode" @change="handleDualModeToggle" />
@@ -503,6 +547,9 @@ onUnmounted(() => {
     </div>
     <div v-if="state.isDualMode" class="control-info">
       <p>玩家1: 方向键控制 | 玩家2: WASD键控制</p>
+    </div>
+    <div v-if="successLevels.length" class="success-levels">
+      {{ successLevels }}
     </div>
     <div class="steps-info" v-if="steps.length">
       <p>当前步骤: {{ steps.join('->') }}</p>

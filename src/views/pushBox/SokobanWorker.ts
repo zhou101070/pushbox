@@ -1,3 +1,5 @@
+import type { AlgorithmType } from './SokobanSolver'
+
 // 方向: 上、右、下、左
 const DIRECTIONS: [number, number][] = [
   [-1, 0],
@@ -292,10 +294,29 @@ class SokobanSolver {
     return result
   }
 
+  // 缓存目标位置列表
+  private _targetPositionList: Position[] | null = null
+
+  // 获取目标位置列表（带缓存）
+  private getTargetPositionList(): Position[] {
+    if (!this._targetPositionList) {
+      this._targetPositionList = Array.from(this.targets).map((s) => this.stringToPos(s))
+    }
+    return this._targetPositionList
+  }
+
   isGoal(state: State): boolean {
-    return (
-      state.boxes.size === this.targets.size && [...state.boxes].every((b) => this.targets.has(b))
-    )
+    // 快速检查：箱子数量必须等于目标数量
+    if (state.boxes.size !== this.targets.size) return false
+
+    // 使用Set操作检查所有箱子是否都在目标位置上
+    // 避免使用数组转换和every方法，减少遍历操作
+    for (const boxPos of state.boxes) {
+      if (!this.targets.has(boxPos)) {
+        return false
+      }
+    }
+    return true
   }
 
   getPath(state: State): string[] {
@@ -311,23 +332,86 @@ class SokobanSolver {
   solveBfs(): string[] | null {
     if (!this.playerPos) return null
     const initialState = new State(this.playerPos, new Set(this.boxes))
-    const visited = new Set<string>([initialState.getHash()])
-    const queue: State[] = [initialState]
 
-    while (queue.length) {
-      const state = queue.shift()!
-      if (this.isGoal(state)) return this.getPath(state)
+    // 使用Map代替Set来存储已访问状态，可以更快地查找
+    const visited = new Map<string, boolean>()
+    visited.set(initialState.getHash(), true)
 
-      for (const next of this.getNextStates(state)) {
+    // 使用数组实现队列，但预分配一定容量以减少扩容操作
+    let queue: State[] = new Array(10000)
+    let front = 0
+    let rear = 0
+    queue[rear++] = initialState
+
+    // 预先计算一些常用值以避免重复计算
+    const targetSize = this.targets.size
+
+    while (front < rear) {
+      const state = queue[front++]
+
+      // 快速目标检查
+      if (state.boxes.size === targetSize && this.isGoal(state)) {
+        return this.getPath(state)
+      }
+
+      // 获取下一步可能的状态
+      const nextStates = this.getNextStates(state)
+
+      // 优先探索更有希望的状态
+      // 简单启发式：按照箱子到目标的总距离排序
+      if (nextStates.length > 1) {
+        nextStates.sort((a, b) => {
+          // 简单启发式函数：计算所有箱子到最近目标的曼哈顿距离之和
+          const scoreA = this.getSimpleHeuristic(a)
+          const scoreB = this.getSimpleHeuristic(b)
+          return scoreA - scoreB
+        })
+      }
+
+      for (const next of nextStates) {
         const hash = next.getHash()
         if (!visited.has(hash)) {
-          visited.add(hash)
-          queue.push(next)
+          visited.set(hash, true)
+          queue[rear++] = next
+
+          // 如果队列即将溢出，动态扩容
+          if (rear >= queue.length) {
+            const newQueue = new Array(queue.length * 2)
+            for (let i = front; i < rear; i++) {
+              newQueue[i - front] = queue[i]
+            }
+            rear -= front
+            front = 0
+            queue = newQueue
+          }
         }
       }
     }
 
     return null
+  }
+
+  // 简单启发式函数：计算所有箱子到最近目标的曼哈顿距离之和
+  private getSimpleHeuristic(state: State): number {
+    let sum = 0
+    // 使用缓存的目标位置列表，避免重复转换
+    const targetList = this.getTargetPositionList()
+
+    for (const boxStr of state.boxes) {
+      if (this.targets.has(boxStr)) continue // 已经在目标位置的箱子跳过
+
+      const [x, y] = this.stringToPos(boxStr)
+      let minDist = Infinity
+
+      for (const [tx, ty] of targetList) {
+        const dist = Math.abs(x - tx) + Math.abs(y - ty)
+        if (dist < minDist) minDist = dist
+      }
+
+      sum += minDist
+    }
+
+    return sum
   }
 
   solveAStar(): string[] | null {
@@ -337,17 +421,212 @@ class SokobanSolver {
     const heap = new MinHeap<State>()
 
     const targetList = Array.from(this.targets).map((s) => this.stringToPos(s))
-    const heuristic = (state: State) => {
-      let sum = 0
-      for (const bStr of state.boxes) {
-        const [x, y] = this.stringToPos(bStr)
-        let min = Infinity
-        for (const [tx, ty] of targetList) {
-          const dist = Math.abs(x - tx) + Math.abs(y - ty)
-          if (dist < min) min = dist
-        }
-        sum += min
+
+    // 计算两点间的实际路径距离（考虑墙壁阻挡）
+    // 使用缓存存储已计算过的路径距离
+    const distanceCache = new Map<string, number>()
+    const calculatePathDistance = (start: Position, end: Position): number => {
+      // 如果起点和终点相同，直接返回0
+      if (start[0] === end[0] && start[1] === end[1]) return 0
+
+      // 生成缓存键（正向）
+      const cacheKey = `${start[0]},${start[1]}-${end[0]},${end[1]}`
+
+      // 检查缓存中是否已有结果
+      if (distanceCache.has(cacheKey)) {
+        return distanceCache.get(cacheKey)!
       }
+
+      // 生成缓存键（反向）- 因为A到B的距离等于B到A的距离
+      const reverseCacheKey = `${end[0]},${end[1]}-${start[0]},${start[1]}`
+      if (distanceCache.has(reverseCacheKey)) {
+        return distanceCache.get(reverseCacheKey)!
+      }
+
+      // 快速检查：如果起点或终点是墙，直接返回曼哈顿距离
+      if (!this.isValidMove(end) || !this.isValidMove(start)) {
+        const manhattanDist = Math.abs(start[0] - end[0]) + Math.abs(start[1] - end[1])
+        distanceCache.set(cacheKey, manhattanDist)
+        // 同时缓存反向路径
+        distanceCache.set(reverseCacheKey, manhattanDist)
+        return manhattanDist
+      }
+
+      // 快速检查：如果曼哈顿距离为1，且没有墙阻挡，直接返回1
+      const manhattanDist = Math.abs(start[0] - end[0]) + Math.abs(start[1] - end[1])
+      if (manhattanDist === 1) {
+        distanceCache.set(cacheKey, 1)
+        distanceCache.set(reverseCacheKey, 1)
+        return 1
+      }
+
+      // 使用BFS计算实际路径距离
+      const queue: [Position, number][] = [[start, 0]]
+      const visited = new Set<string>([this.posToString(start)])
+
+      while (queue.length > 0) {
+        const [pos, dist] = queue.shift()!
+
+        // 如果到达终点，缓存结果并返回距离
+        if (pos[0] === end[0] && pos[1] === end[1]) {
+          distanceCache.set(cacheKey, dist)
+          // 同时缓存反向路径
+          distanceCache.set(reverseCacheKey, dist)
+          return dist
+        }
+
+        // 尝试四个方向，优先选择朝向目标的方向
+        const directions = [...DIRECTIONS]
+        // 根据终点位置对方向进行排序，优先探索朝向终点的方向
+        directions.sort((a, b) => {
+          const distA = Math.abs(pos[0] + a[0] - end[0]) + Math.abs(pos[1] + a[1] - end[1])
+          const distB = Math.abs(pos[0] + b[0] - end[0]) + Math.abs(pos[1] + b[1] - end[1])
+          return distA - distB
+        })
+
+        for (const [di, dj] of directions) {
+          const newPos: Position = [pos[0] + di, pos[1] + dj]
+          const newPosStr = this.posToString(newPos)
+
+          // 如果新位置有效且未访问过
+          if (this.isValidMove(newPos) && !visited.has(newPosStr)) {
+            visited.add(newPosStr)
+            queue.push([newPos, dist + 1])
+          }
+        }
+      }
+
+      // 如果无法到达，返回曼哈顿距离作为估计
+      distanceCache.set(cacheKey, manhattanDist)
+      // 同时缓存反向路径
+      distanceCache.set(reverseCacheKey, manhattanDist)
+      return manhattanDist
+    }
+
+    // 计算玩家到最近箱子的距离
+    const playerToNearestBox = (playerPos: Position, boxes: Set<string>): number => {
+      if (boxes.size === 0) return 0
+
+      let minDist = Infinity
+      for (const boxStr of boxes) {
+        const boxPos = this.stringToPos(boxStr)
+        // 先计算曼哈顿距离，如果为1，可以直接返回
+        const manhattanDist =
+          Math.abs(playerPos[0] - boxPos[0]) + Math.abs(playerPos[1] - boxPos[1])
+        if (manhattanDist === 1 && this.isValidMove(boxPos)) {
+          return 1 // 如果玩家紧邻箱子，且可以移动到该位置，距离就是1
+        }
+        const dist = calculatePathDistance(playerPos, boxPos)
+        minDist = Math.min(minDist, dist)
+        // 如果找到距离为1的箱子，不需要继续搜索
+        if (minDist === 1) break
+      }
+      return minDist
+    }
+
+    // 缓存状态的启发式值
+    const heuristicCache = new Map<string, number>()
+
+    // 改进的启发式函数
+    const heuristic = (state: State) => {
+      // 检查缓存
+      const stateHash = state.getHash()
+      if (heuristicCache.has(stateHash)) {
+        return heuristicCache.get(stateHash)!
+      }
+
+      let sum = 0
+      const boxPositions = Array.from(state.boxes).map((s) => this.stringToPos(s))
+
+      // 如果箱子数量等于目标数量，可以使用更高效的匹配算法
+      if (boxPositions.length === targetList.length) {
+        // 创建距离矩阵
+        const distMatrix: number[][] = []
+
+        // 计算每个箱子到每个目标的距离
+        for (const boxPos of boxPositions) {
+          const distances: number[] = []
+          for (const targetPos of targetList) {
+            // 如果箱子已经在目标位置上，距离为0
+            if (boxPos[0] === targetPos[0] && boxPos[1] === targetPos[1]) {
+              distances.push(0)
+            } else {
+              distances.push(calculatePathDistance(boxPos, targetPos))
+            }
+          }
+          distMatrix.push(distances)
+        }
+
+        // 使用贪心算法进行匹配
+        const targetPositions = targetList.slice()
+        for (const boxPos of boxPositions) {
+          let minDist = Infinity
+          let bestTargetIndex = -1
+
+          // 找到距离当前箱子最近的目标
+          for (let i = 0; i < targetPositions.length; i++) {
+            const targetPos = targetPositions[i]
+            const dist = calculatePathDistance(boxPos, targetPos)
+            if (dist < minDist) {
+              minDist = dist
+              bestTargetIndex = i
+            }
+          }
+
+          // 累加距离并移除已匹配的目标
+          if (bestTargetIndex !== -1) {
+            sum += minDist
+            targetPositions.splice(bestTargetIndex, 1)
+          }
+        }
+      } else {
+        // 原始的贪心匹配算法
+        const targetPositions = targetList.slice()
+        for (const boxPos of boxPositions) {
+          let minDist = Infinity
+          let bestTargetIndex = -1
+
+          // 找到距离当前箱子最近的目标
+          for (let i = 0; i < targetPositions.length; i++) {
+            const targetPos = targetPositions[i]
+            // 如果箱子已经在目标位置上，距离为0
+            if (boxPos[0] === targetPos[0] && boxPos[1] === targetPos[1]) {
+              minDist = 0
+              bestTargetIndex = i
+              break // 已找到最佳匹配，不需要继续搜索
+            }
+            const dist = calculatePathDistance(boxPos, targetPos)
+            if (dist < minDist) {
+              minDist = dist
+              bestTargetIndex = i
+            }
+          }
+
+          // 累加距离并移除已匹配的目标
+          if (bestTargetIndex !== -1) {
+            sum += minDist
+            targetPositions.splice(bestTargetIndex, 1)
+          }
+        }
+      }
+
+      // 加上玩家到最近未完成箱子的距离
+      // 找出未到达目标的箱子
+      const unfinishedBoxes = new Set<string>()
+      for (const boxStr of state.boxes) {
+        if (!this.targets.has(boxStr)) {
+          unfinishedBoxes.add(boxStr)
+        }
+      }
+
+      // 如果还有未完成的箱子，考虑玩家到最近未完成箱子的距离
+      if (unfinishedBoxes.size > 0) {
+        sum += playerToNearestBox(state.playerPos, unfinishedBoxes)
+      }
+
+      // 缓存结果
+      heuristicCache.set(stateHash, sum)
+
       return sum
     }
 
@@ -357,9 +636,9 @@ class SokobanSolver {
     while (heap.size > 0) {
       const [, state] = heap.pop()!
       if (this.isGoal(state)) return this.getPath(state)
-      if (heap.size % 1000 === 0) {
-        console.log(`Heap size: ${heap.size}`)
-      }
+      // if (heap.size % 1000 === 0) {
+      //   console.log(`Heap size: ${heap.size}`)
+      // }
       for (const next of this.getNextStates(state)) {
         const hash = next.getHash()
         if (!visited.has(hash)) {
@@ -371,21 +650,325 @@ class SokobanSolver {
 
     return null
   }
+
+  solveDfs(): string[] | null {
+    if (!this.playerPos) return null
+    const initialState = new State(this.playerPos, new Set(this.boxes))
+    const visited = new Set<string>([initialState.getHash()])
+    const stack: State[] = [initialState]
+    const maxDepth = 1000 // 防止无限递归
+
+    while (stack.length) {
+      const state = stack.pop()!
+      if (this.isGoal(state)) return this.getPath(state)
+
+      // 深度限制，防止搜索过深
+      if (state.steps >= maxDepth) continue
+
+      // 获取下一步可能的状态，按照启发式函数排序，优先探索更有希望的路径
+      const nextStates = this.getNextStates(state)
+
+      // 对下一步状态进行简单排序，优先探索箱子离目标更近的状态
+      const targetList = Array.from(this.targets).map((s) => this.stringToPos(s))
+      nextStates.sort((a, b) => {
+        let scoreA = 0,
+          scoreB = 0
+        for (const bStr of a.boxes) {
+          const [x, y] = this.stringToPos(bStr)
+          let min = Infinity
+          for (const [tx, ty] of targetList) {
+            const dist = Math.abs(x - tx) + Math.abs(y - ty)
+            if (dist < min) min = dist
+          }
+          scoreA += min
+        }
+        for (const bStr of b.boxes) {
+          const [x, y] = this.stringToPos(bStr)
+          let min = Infinity
+          for (const [tx, ty] of targetList) {
+            const dist = Math.abs(x - tx) + Math.abs(y - ty)
+            if (dist < min) min = dist
+          }
+          scoreB += min
+        }
+        return scoreA - scoreB
+      })
+
+      // 逆序添加到栈中，这样最优的状态会被最先弹出
+      for (let i = nextStates.length - 1; i >= 0; i--) {
+        const next = nextStates[i]
+        const hash = next.getHash()
+        if (!visited.has(hash)) {
+          visited.add(hash)
+          stack.push(next)
+        }
+      }
+    }
+
+    return null
+  }
+
+  /**
+   * 路径优化算法：给定一个通关路径，优化为最短路径
+   * @param originalPath 原始路径（方向字符串数组）
+   * @returns 优化后的最短路径，如果优化失败则返回原路径
+   */
+  optimizePath(originalPath: string[]): string[] {
+    if (!this.playerPos || originalPath.length === 0) return originalPath
+
+    // 验证原路径是否有效
+    if (!this.validatePath(originalPath)) {
+      console.warn('原路径无效，返回原路径')
+      return originalPath
+    }
+
+    // 使用滑动窗口算法优化路径
+    let optimizedPath = [...originalPath]
+    let improved = true
+    let iterations = 0
+    const maxIterations = 10 // 防止无限循环
+
+    while (improved && iterations < maxIterations) {
+      improved = false
+      iterations++
+
+      // 尝试不同大小的窗口进行优化
+      for (let windowSize = Math.min(20, optimizedPath.length); windowSize >= 3; windowSize--) {
+        for (let start = 0; start <= optimizedPath.length - windowSize; start++) {
+          const newPath = this.optimizeSegment(optimizedPath, start, start + windowSize)
+          if (newPath.length < optimizedPath.length) {
+            optimizedPath = newPath
+            improved = true
+            break
+          }
+        }
+        if (improved) break
+      }
+    }
+
+    // 最后进行一次全局优化
+    const globalOptimized = this.globalOptimize(optimizedPath)
+    return globalOptimized.length < optimizedPath.length ? globalOptimized : optimizedPath
+  }
+
+  /**
+   * 验证路径是否有效
+   */
+  private validatePath(path: string[]): boolean {
+    if (!this.playerPos) return false
+
+    let currentPlayerPos = [...this.playerPos] as Position
+    const currentBoxes = new Set(this.boxes)
+
+    for (const direction of path) {
+      const dirIndex = DIRECTION_NAMES.indexOf(direction)
+      if (dirIndex === -1) return false
+
+      const [di, dj] = DIRECTIONS[dirIndex]
+      const newPos: Position = [currentPlayerPos[0] + di, currentPlayerPos[1] + dj]
+      const newPosStr = this.posToString(newPos)
+
+      if (!this.isValidMove(newPos)) return false
+
+      if (currentBoxes.has(newPosStr)) {
+        const boxNewPos: Position = [newPos[0] + di, newPos[1] + dj]
+        const boxNewStr = this.posToString(boxNewPos)
+        if (!this.isValidMove(boxNewPos) || currentBoxes.has(boxNewStr)) {
+          return false
+        }
+        currentBoxes.delete(newPosStr)
+        currentBoxes.add(boxNewStr)
+      }
+
+      currentPlayerPos = newPos
+    }
+
+    return true
+  }
+
+  /**
+   * 优化路径中的一个片段
+   */
+  private optimizeSegment(path: string[], start: number, end: number): string[] {
+    const beforeSegment = path.slice(0, start)
+    const segment = path.slice(start, end)
+    const afterSegment = path.slice(end)
+
+    // 获取片段开始时的游戏状态
+    const startState = this.getStateAtStep(beforeSegment)
+    if (!startState) return path
+
+    // 获取片段结束时的游戏状态
+    const endState = this.getStateAtStep(path.slice(0, end))
+    if (!endState) return path
+
+    // 使用A*算法寻找从开始状态到结束状态的最短路径
+    const optimizedSegment = this.findShortestPath(startState, endState)
+    if (optimizedSegment && optimizedSegment.length < segment.length) {
+      return [...beforeSegment, ...optimizedSegment, ...afterSegment]
+    }
+
+    return path
+  }
+
+  /**
+   * 全局路径优化
+   */
+  private globalOptimize(path: string[]): string[] {
+    if (!this.playerPos) return path
+
+    const initialState = new State(this.playerPos, new Set(this.boxes))
+    const finalState = this.getStateAtStep(path)
+    if (!finalState) return path
+
+    const optimizedPath = this.findShortestPath(initialState, finalState)
+    return optimizedPath || path
+  }
+
+  /**
+   * 根据路径获取指定步数后的游戏状态
+   */
+  private getStateAtStep(path: string[]): State | null {
+    if (!this.playerPos) return null
+
+    let currentPlayerPos = [...this.playerPos] as Position
+    const currentBoxes = new Set(this.boxes)
+
+    for (const direction of path) {
+      const dirIndex = DIRECTION_NAMES.indexOf(direction)
+      if (dirIndex === -1) return null
+
+      const [di, dj] = DIRECTIONS[dirIndex]
+      const newPos: Position = [currentPlayerPos[0] + di, currentPlayerPos[1] + dj]
+      const newPosStr = this.posToString(newPos)
+
+      if (!this.isValidMove(newPos)) return null
+
+      if (currentBoxes.has(newPosStr)) {
+        const boxNewPos: Position = [newPos[0] + di, newPos[1] + dj]
+        const boxNewStr = this.posToString(boxNewPos)
+        if (!this.isValidMove(boxNewPos) || currentBoxes.has(boxNewStr)) {
+          return null
+        }
+        currentBoxes.delete(newPosStr)
+        currentBoxes.add(boxNewStr)
+      }
+
+      currentPlayerPos = newPos
+    }
+
+    return new State(currentPlayerPos, currentBoxes)
+  }
+
+  /**
+   * 使用A*算法寻找两个状态之间的最短路径
+   */
+  private findShortestPath(startState: State, targetState: State): string[] | null {
+    const visited = new Set<string>()
+    const heap = new MinHeap<State>()
+    const targetHash = targetState.getHash()
+
+    // 启发式函数：曼哈顿距离
+    const heuristic = (state: State) => {
+      const [px, py] = state.playerPos
+      const [tx, ty] = targetState.playerPos
+      const playerDist = Math.abs(px - tx) + Math.abs(py - ty)
+
+      // 箱子位置差异
+      let boxDist = 0
+      const stateBoxes = Array.from(state.boxes)
+      const targetBoxes = Array.from(targetState.boxes)
+
+      if (stateBoxes.length === targetBoxes.length) {
+        stateBoxes.sort()
+        targetBoxes.sort()
+        for (let i = 0; i < stateBoxes.length; i++) {
+          const [sx, sy] = this.stringToPos(stateBoxes[i])
+          const [tx, ty] = this.stringToPos(targetBoxes[i])
+          boxDist += Math.abs(sx - tx) + Math.abs(sy - ty)
+        }
+      }
+
+      return playerDist + boxDist
+    }
+
+    heap.push([heuristic(startState), startState])
+    visited.add(startState.getHash())
+
+    let searchSteps = 0
+    const maxSearchSteps = 5000 // 限制搜索步数
+
+    while (heap.size > 0 && searchSteps < maxSearchSteps) {
+      searchSteps++
+      const [, state] = heap.pop()!
+
+      if (state.getHash() === targetHash) {
+        return this.getPath(state)
+      }
+
+      for (const next of this.getNextStates(state)) {
+        const hash = next.getHash()
+        if (!visited.has(hash)) {
+          visited.add(hash)
+          heap.push([next.steps + heuristic(next), next])
+        }
+      }
+    }
+
+    return null
+  }
 }
 
 // Web Worker 接口
 interface SolverMessage {
-  type: 'solve'
+  type: 'solve' | 'optimize'
   gameMap: number[][]
-  algorithm: 'bfs' | 'a_star'
+  algorithm?: AlgorithmType
+  originalPath?: string[]
+}
+
+interface OptimizeMessage {
+  type: 'optimize'
+  gameMap: number[][]
+  originalPath: string[]
 }
 
 // Worker entry point
-self.onmessage = function (e: MessageEvent<SolverMessage>) {
-  const { type, gameMap, algorithm } = e.data
+self.onmessage = function (e: MessageEvent<SolverMessage | OptimizeMessage>) {
+  const { type, gameMap } = e.data
+
   if (type === 'solve') {
+    const { algorithm } = e.data as SolverMessage
     const solver = new SokobanSolver(gameMap)
-    const path = algorithm === 'bfs' ? solver.solveBfs() : solver.solveAStar()
+    let path: string[] | null = null
+
+    if (algorithm === 'bfs') {
+      path = solver.solveBfs()
+    } else if (algorithm === 'dfs') {
+      path = solver.solveDfs()
+    } else {
+      path = solver.solveAStar()
+    }
+
     self.postMessage({ type: 'result', path })
+  } else if (type === 'optimize') {
+    const { originalPath } = e.data as OptimizeMessage
+    const solver = new SokobanSolver(gameMap)
+
+    try {
+      const optimizedPath = solver.optimizePath(originalPath)
+      self.postMessage({
+        type: 'optimized',
+        originalPath,
+        optimizedPath,
+        improvement: originalPath.length - optimizedPath.length,
+      })
+    } catch (error) {
+      self.postMessage({
+        type: 'error',
+        message: `路径优化失败: ${error instanceof Error ? error.message : '未知错误'}`,
+        originalPath,
+      })
+    }
   }
 }
